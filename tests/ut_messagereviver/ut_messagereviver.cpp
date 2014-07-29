@@ -73,7 +73,7 @@ void Ut_MessageReviver::initTestCase()
     groupModel.enableContactChanges(false);
     CommHistory::Group group;
     group.setLocalUid(ACCOUNT_PATH);
-    group.setRemoteUids(QStringList() << NUMBER);
+    group.setRecipients(CommHistory::Recipient(ACCOUNT_PATH, NUMBER));
     groupModel.addGroup(group);
 
     CommHistory::EventModel model;
@@ -87,7 +87,7 @@ void Ut_MessageReviver::initTestCase()
     event.setEndTime(QDateTime::currentDateTime());
     event.setLocalUid(ACCOUNT_PATH);
     event.setGroupId(group.id());
-    event.setRemoteUid(NUMBER);
+    event.setRecipients(CommHistory::Recipient(ACCOUNT_PATH, NUMBER));
     event.setFreeText("blah");
     event.setMessageToken("mrtc1");
     model.addEvent(event, false);

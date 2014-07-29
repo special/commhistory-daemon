@@ -91,7 +91,7 @@ CommHistory::Event Ut_NotificationManager::createEvent(CommHistory::Event::Event
     event.setStartTime(QDateTime::currentDateTime());
     event.setEndTime(QDateTime::currentDateTime());
     event.setLocalUid(DUT_ACCOUNT_PATH);
-    event.setRemoteUid(remoteUid);
+    event.setRecipients(CommHistory::Recipient(DUT_ACCOUNT_PATH, remoteUid));
 
     if (type == CommHistory::Event::IMEvent || type == CommHistory::Event::SMSEvent) {
         event.setFreeText(MESSAGE_TEXT);

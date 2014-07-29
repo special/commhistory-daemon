@@ -64,9 +64,10 @@ StreamChannelListener::StreamChannelListener(const Tp::AccountPtr &account,
     m_Event.setStartTime(QDateTime::currentDateTime());
     m_Event.setEndTime(m_Event.startTime());
     m_Event.setType(CommHistory::Event::CallEvent);
-    if (m_Account)
+    if (m_Account) {
         m_Event.setLocalUid(m_Account->objectPath());
-    m_Event.setRemoteUid(targetId());
+        m_Event.setRecipients(CommHistory::Recipient(m_Account->objectPath(), targetId()));
+    }
 
     m_Direction = CommHistory::Event::Inbound;
 

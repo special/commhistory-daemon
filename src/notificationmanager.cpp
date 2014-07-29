@@ -202,7 +202,7 @@ void NotificationManager::showNotification(const CommHistory::Event& event,
     DEBUG() << Q_FUNC_INFO << event.id() << channelTargetId << chatType;
 
     bool inboxObserved = CommHistoryService::instance()->inboxObserved();
-    if (inboxObserved || isCurrentlyObservedByUI(event, channelTargetId, chatType)) {
+    if (inboxObserved || isCurrentlyObservedByUI(event, chatType)) {
         if (!m_ngfClient->isConnected())
             m_ngfClient->connect();
 
@@ -238,7 +238,9 @@ void NotificationManager::showNotification(const CommHistory::Event& event,
         }
     }
 
-    PersonalNotification *notification = new PersonalNotification(event.remoteUid(),
+    // XXX PersonalNotification should have multi-recipient support, but it has a serialized format with
+    // compatibility issues. This doesn't impact notification text.
+    PersonalNotification *notification = new PersonalNotification(event.recipients().value(0).remoteUid(),
             event.localUid(), event.type(), channelTargetId, chatType);
     notification->setNotificationText(notificationText(event));
     notification->setSmsReplaceNumber(event.headers().value(REPLACE_TYPE));
@@ -285,7 +287,6 @@ void NotificationManager::playClass0SMSAlert()
 }
 
 bool NotificationManager::isCurrentlyObservedByUI(const CommHistory::Event& event,
-                                                  const QString &channelTargetId,
                                                   CommHistory::Group::ChatType chatType)
 {
     // Return false if it's not message event (IM or SMS/MMS)
@@ -297,22 +298,13 @@ bool NotificationManager::isCurrentlyObservedByUI(const CommHistory::Event& even
         return false;
     }
 
-    QString remoteMatch;
-    if (chatType == CommHistory::Group::ChatTypeP2P)
-        remoteMatch = event.remoteUid();
-    else
-        remoteMatch = channelTargetId;
-
     QVariantList conversations = CommHistoryService::instance()->observedConversations();
     foreach (const QVariant &conversation, conversations) {
         QVariantList values = conversation.toList();
         if (values.size() != 3)
             continue;
 
-        if (event.localUid() != values[0].toString())
-            continue;
-
-        if (!CommHistory::remoteAddressMatch(event.localUid(), remoteMatch, values[1].toString()))
+        if (event.recipients().matches(CommHistory::Recipient(values[0].toString(), values[1].toString())))
             continue;
 
         if (chatType != (CommHistory::Group::ChatType)values[2].toUInt())
@@ -361,8 +353,7 @@ void NotificationManager::removeNotifications(const QString &accountPath, bool m
     }
 }
 
-void NotificationManager::removeConversationNotifications(const QString &localUid,
-                                                          const QString &remoteUid,
+void NotificationManager::removeConversationNotifications(const CommHistory::Recipient &recipient,
                                                           CommHistory::Group::ChatType chatType)
 {
     foreach (NotificationGroup *group, m_Groups) {
@@ -374,15 +365,14 @@ void NotificationManager::removeConversationNotifications(const QString &localUi
             continue;
 
         foreach (PersonalNotification *notification, group->notifications()) {
-            QString notificationRemoteUidStr;
+            CommHistory::Recipient notificationRecipient;
             // For p-to-p chat we use remote uid for comparison and for MUC we use target (channel) id:
             if (chatType == CommHistory::Group::ChatTypeP2P)
-                notificationRemoteUidStr = notification->remoteUid();
+                notificationRecipient = CommHistory::Recipient(notification->account(), notification->remoteUid());
             else
-                notificationRemoteUidStr = notification->targetId();
+                notificationRecipient = CommHistory::Recipient(notification->account(), notification->targetId());
 
-            if (notification->account() == localUid
-                    && CommHistory::remoteAddressMatch(localUid, notificationRemoteUidStr, remoteUid)
+            if (recipient.matches(notificationRecipient)
                     && (CommHistory::Group::ChatType)(notification->chatType()) == chatType) {
                 group->removeNotification(notification);
             }
@@ -397,7 +387,7 @@ void NotificationManager::slotObservedConversationsChanged(const QVariantList &c
         if (values.size() != 3)
             continue;
 
-        removeConversationNotifications(values[0].toString(), values[1].toString(),
+        removeConversationNotifications(CommHistory::Recipient(values[0].toString(), values[1].toString()),
                                         (CommHistory::Group::ChatType)values[2].toUInt());
     }
 }
@@ -682,10 +672,8 @@ void NotificationManager::slotGroupRemoved(const QModelIndex &index, int start, 
     for (int i = start; i <= end; i++) {
         QModelIndex row = m_GroupModel->index(i, 0, index);
         Group group = m_GroupModel->group(row);
-        if (group.isValid()
-            && !group.remoteUids().isEmpty()) {
-            removeConversationNotifications(group.localUid(),
-                                            group.remoteUids().first(),
+        if (group.isValid()) {
+            removeConversationNotifications(group.recipients().value(0),
                                             group.chatType());
         }
     }
@@ -727,14 +715,11 @@ void NotificationManager::slotGroupDataChanged(const QModelIndex &topLeft, const
         QModelIndex row = m_GroupModel->index(i, 0);
         CommHistory::Group group = m_GroupModel->group(row);
         if (group.isValid()) {
-            QString remoteUid = group.remoteUids().first();
-            QString localUid = group.localUid();
-
             foreach (NotificationGroup *g, m_Groups) {
                 foreach (PersonalNotification *pn, g->notifications()) {
                     // If notification is for MUC and matches to changed group...
-                    if (!pn->chatName().isEmpty() && pn->account() == localUid &&
-                            CommHistory::remoteAddressMatch(localUid, pn->targetId(), remoteUid))
+                    if (!pn->chatName().isEmpty() &&
+                            group.recipients().matches(CommHistory::Recipient(pn->account(), pn->targetId())))
                     {
                         QString newChatName;
                         if (group.chatName().isEmpty() && pn->chatName() != txt_qtn_msg_group_chat)

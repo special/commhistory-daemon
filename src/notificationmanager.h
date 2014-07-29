@@ -37,6 +37,7 @@
 #include <CommHistory/Event>
 #include <CommHistory/Group>
 #include <CommHistory/GroupModel>
+#include <CommHistory/Recipient>
 #include <CommHistory/contactlistener.h>
 
 // our includes
@@ -137,14 +138,12 @@ private:
     NotificationManager( QObject* parent = 0);
     ~NotificationManager();
     bool isCurrentlyObservedByUI(const CommHistory::Event& event,
-                                 const QString &channelTargetId,
                                  CommHistory::Group::ChatType chatType);
 
     void resolveNotification(PersonalNotification *notification);
     void addNotification(PersonalNotification *notification);
 
-    void removeConversationNotifications(const QString &localId,
-                                         const QString &remoteId,
+    void removeConversationNotifications(const CommHistory::Recipient &recipient,
                                          CommHistory::Group::ChatType chatType);
 
     bool hasMessageNotification() const;

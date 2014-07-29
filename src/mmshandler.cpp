@@ -58,7 +58,7 @@ QString MmsHandler::messageNotification(const QString &imsi, const QString &from
     event.setEndTime(event.startTime());
     event.setDirection(Event::Inbound);
     event.setLocalUid(RING_ACCOUNT_PATH);
-    event.setRemoteUid(from);
+    event.setRecipients(Recipient(RING_ACCOUNT_PATH, from));
     event.setSubject(subject);
     event.setExtraProperty("mms-notification-imsi", imsi);
     event.setExtraProperty("mms-expiry", expiry);
@@ -139,7 +139,7 @@ void MmsHandler::messageReceiveStateChanged(const QString &recId, int state)
 
         if (newStatus != Event::WaitingStatus && newStatus != Event::DownloadingStatus) {
             m_activeEvents.removeOne(event.id());
-            NotificationManager::instance()->showNotification(event, event.remoteUid(), Group::ChatTypeP2P);
+            NotificationManager::instance()->showNotification(event, event.recipients().value(0).remoteUid(), Group::ChatTypeP2P);
         }
     }
 }
@@ -161,7 +161,7 @@ void MmsHandler::messageReceived(const QString &recId, const QString &mmsId, con
         event.setEndTime(QDateTime::currentDateTime());
         event.setDirection(Event::Inbound);
         event.setLocalUid(RING_ACCOUNT_PATH);
-        event.setRemoteUid(from);
+        event.setRecipients(Recipient(RING_ACCOUNT_PATH, from));
         if (!setGroupForEvent(event)) {
             qCritical() << "Failed to handle group for MMS received event; message dropped:" << event.toString();
             return;
@@ -185,9 +185,9 @@ void MmsHandler::messageReceived(const QString &recId, const QString &mmsId, con
     event.setExtraProperty("mms-push-data", QVariant());
 
     // Change UID/group if necessary
-    if (event.remoteUid() != from) {
+    if (event.recipients().value(0).remoteUid() != from) {
         int oldGroup = event.groupId();
-        event.setRemoteUid(from);
+        event.setRecipients(Recipient(event.localUid(), from));
         if (!setGroupForEvent(event))
             qCritical() << "Failed handling group for MMS received event";
 
@@ -335,7 +335,7 @@ void MmsHandler::messageSendStateChanged(const QString &recId, int state)
 
         if (newStatus != Event::SendingStatus) {
             m_activeEvents.removeOne(event.id());
-            NotificationManager::instance()->showNotification(event, event.remoteUid(), Group::ChatTypeP2P);
+            NotificationManager::instance()->showNotification(event, event.recipients().value(0).remoteUid(), Group::ChatTypeP2P);
         }
     }
 }
@@ -451,7 +451,7 @@ int MmsHandler::sendMessage(const QStringList &to, const QStringList &cc, const 
     event.setStatus(Event::SendingStatus);
     event.setIsRead(true);
 
-    event.setRemoteUid(CommHistory::normalizePhoneNumber(to[0], false)); // XXX Wrong for group conversations!
+    event.setRecipients(RecipientList::fromUids(event.localUid(), to + cc + bcc));
     event.setToList(normalizeNumberList(to));
     event.setCcList(normalizeNumberList(cc));
     event.setBccList(normalizeNumberList(bcc));
@@ -509,7 +509,7 @@ int MmsHandler::sendMessage(const QStringList &to, const QStringList &cc, const 
     }
 
     if (event.status() >= Event::TemporarilyFailedStatus)
-        NotificationManager::instance()->showNotification(event, event.remoteUid(), Group::ChatTypeP2P);
+        NotificationManager::instance()->showNotification(event, event.recipients().value(0).remoteUid(), Group::ChatTypeP2P);
     return event.id();
 }
 
@@ -579,7 +579,7 @@ void MmsHandler::sendMessageFinished(QDBusPendingCallWatcher *call)
     if (reply.isError()) {
         qCritical() << "Call to MmsEngine sendMessage failed:" << reply.error();
         event.setStatus(Event::TemporarilyFailedStatus);
-        NotificationManager::instance()->showNotification(event, event.remoteUid(), Group::ChatTypeP2P);
+        NotificationManager::instance()->showNotification(event, event.recipients().value(0).remoteUid(), Group::ChatTypeP2P);
     } else {
         event.setExtraProperty("mms-notification-imsi", reply.value());
     }
