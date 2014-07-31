@@ -61,6 +61,7 @@ NotificationManager* NotificationManager::m_pInstance = 0;
 NotificationManager::NotificationManager(QObject* parent)
         : QObject(parent)
         , m_Initialised(false)
+        , m_contactResolver(0)
         , m_GroupModel(0)
         , m_ngfClient(0)
         , m_ngfEvent(0)
@@ -80,12 +81,8 @@ void NotificationManager::init()
     }
 
     m_contactListener = ContactListener::instance();
-    connect(m_contactListener.data(), SIGNAL(contactUpdated(quint32,QString,QList<ContactAddress>)),
-            SLOT(slotContactUpdated(quint32,QString,QList<ContactAddress>)));
-    connect(m_contactListener.data(), SIGNAL(contactRemoved(quint32)),
-            SLOT(slotContactRemoved(quint32)));
-    connect(m_contactListener.data(), SIGNAL(contactUnknown(QPair<QString,QString>)),
-            SLOT(slotContactUnknown(QPair<QString,QString>)));
+    connect(m_contactListener.data(), &ContactListener::contactInfoChanged,
+            this, &NotificationManager::slotContactInfoChanged);
 
     m_ngfClient = new Ngf::Client(this);
     connect(m_ngfClient, SIGNAL(eventFailed(quint32)), SLOT(slotNgfEventFinished(quint32)));
@@ -263,13 +260,51 @@ void NotificationManager::showNotification(const CommHistory::Event& event,
 
 void NotificationManager::resolveNotification(PersonalNotification *pn)
 {
-    if (pn->remoteUid() == QLatin1String("<hidden>") || !pn->chatName().isEmpty()) {
+    CommHistory::Recipient recipient(pn->account(), pn->remoteUid());
+    if (recipient.isContactResolved() || !pn->chatName().isEmpty()) {
         // Add notification immediately
+        pn->setContactId(recipient.contactId());
+        pn->setContactName(recipient.contactName());
         addNotification(pn);
     } else {
-        DEBUG() << Q_FUNC_INFO << "Trying to resolve contact for" << pn->account() << pn->remoteUid();
+        DEBUG() << Q_FUNC_INFO << "Trying to resolve contact for" << recipient;
+        if (!m_contactResolver) {
+            m_contactResolver = new CommHistory::ContactResolver(this);
+            connect(m_contactResolver, &CommHistory::ContactResolver::finished,
+                    this, &NotificationManager::slotContactsResolved);
+        }
+
         m_unresolvedEvents.append(pn);
-        m_contactListener->resolveContact(pn->account(), pn->remoteUid());
+        m_contactResolver->add(recipient);
+    }
+}
+
+void NotificationManager::slotContactsResolved()
+{
+    QList<PersonalNotification*> resolved = m_unresolvedEvents;
+    m_unresolvedEvents.clear();
+
+    foreach (PersonalNotification *pn, resolved) {
+        // Update the PersonalNotification from Recipient
+        Recipient recipient(pn->account(), pn->remoteUid());
+        pn->setContactId(recipient.contactId());
+        pn->setContactName(recipient.contactName());
+        addNotification(pn);
+    }
+}
+
+void NotificationManager::slotContactInfoChanged(const RecipientList &changes)
+{
+    // Check all existing notifications and update if necessary
+    foreach (NotificationGroup *group, m_Groups) {
+        foreach (PersonalNotification *notification, group->notifications()) {
+            Recipient recipient(notification->account(), notification->remoteUid());
+            if (changes.recipients().contains(recipient)) {
+                DEBUG() << "Match existing notification" << notification->account() << notification->remoteUid();
+                notification->setContactId(recipient.contactId());
+                notification->setContactName(recipient.contactName());
+            }
+        }
     }
 }
 
@@ -577,69 +612,6 @@ void NotificationManager::setNotificationAction(Notification *notification, Pers
             notification->setRemoteDBusCallMethodName(VOICEMAIL_METHOD);
             notification->setRemoteDBusCallArguments(QVariantList());
             break;
-    }
-}
-
-void NotificationManager::slotContactUpdated(quint32 localId, const QString &contactName,
-                                             const QList<ContactListener::ContactAddress> &addresses)
-{
-    DEBUG() << Q_FUNC_INFO << localId << contactName;
-
-    // Check all existing notifications and update if necessary
-    foreach (NotificationGroup *group, m_Groups) {
-        foreach (PersonalNotification *notification, group->notifications()) {
-            if (ContactListener::addressMatchesList(notification->account(),
-                        notification->remoteUid(), addresses)) {
-                DEBUG() << "Match existing notification" << notification->account() << notification->remoteUid();
-                notification->setContactId(localId);
-                notification->setContactName(contactName);
-            }
-        }
-    }
-
-    // Check all unresolved events for a match, and add notifications for any that do
-    for (QList<PersonalNotification*>::iterator it = m_unresolvedEvents.begin(); it != m_unresolvedEvents.end(); ) {
-        PersonalNotification *notification = *it;
-
-        if (ContactListener::addressMatchesList(notification->account(),
-                    notification->remoteUid(), addresses)) {
-            notification->setContactId(localId);
-            notification->setContactName(contactName);
-            DEBUG() << "Resolved contact for notification" << notification->account() << notification->remoteUid();
-            addNotification(notification);
-            it = m_unresolvedEvents.erase(it);
-        } else
-            it++;
-    }
-}
-
-void NotificationManager::slotContactRemoved(quint32 localId)
-{
-    DEBUG() << Q_FUNC_INFO << localId;
-
-    // Check all existing notifications and update if necessary
-    foreach (NotificationGroup *group, m_Groups) {
-        foreach (PersonalNotification *notification, group->notifications()) {
-            if (notification->contactId() == localId) {
-                notification->setContactId(0);
-                notification->setContactName(QString());
-            }
-        }
-    }
-}
-
-void NotificationManager::slotContactUnknown(const QPair<QString,QString> &address)
-{
-    for (QList<PersonalNotification*>::iterator it = m_unresolvedEvents.begin(); it != m_unresolvedEvents.end(); ) {
-        PersonalNotification *notification = *it;
-
-        if (address.first == notification->account() &&
-                CommHistory::remoteAddressMatch(address.first, notification->remoteUid(), address.second)) {
-            DEBUG() << "Unknown contact for notification" << notification->account() << notification->remoteUid();
-            addNotification(notification);
-            it = m_unresolvedEvents.erase(it);
-        } else
-            it++;
     }
 }
 

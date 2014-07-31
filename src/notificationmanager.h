@@ -38,7 +38,8 @@
 #include <CommHistory/Group>
 #include <CommHistory/GroupModel>
 #include <CommHistory/Recipient>
-#include <CommHistory/contactlistener.h>
+#include <CommHistory/ContactResolver>
+#include <CommHistory/ContactListener>
 
 // our includes
 #include "notificationgroup.h"
@@ -65,8 +66,6 @@ typedef QPair<QString,QString> TpContactUid;
 class NotificationManager : public QObject
 {
     Q_OBJECT
-
-    typedef CommHistory::ContactListener::ContactAddress ContactAddress;
 
 public:
     /*!
@@ -130,9 +129,8 @@ private Q_SLOTS:
     void slotMWICountChanged(int count);
     void slotGroupDataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight);
     void slotNgfEventFinished(quint32 id);
-    void slotContactUpdated(quint32 localId, const QString &name, const QList<ContactAddress> &addresses);
-    void slotContactRemoved(quint32 localId);
-    void slotContactUnknown(const QPair<QString,QString> &address);
+    void slotContactsResolved();
+    void slotContactInfoChanged(const CommHistory::RecipientList &changes);
 
 private:
     NotificationManager( QObject* parent = 0);
@@ -162,11 +160,12 @@ private:
     QMap<int, NotificationGroup*> m_Groups;
     bool m_Initialised;
 
+    CommHistory::ContactResolver *m_contactResolver;
+    QSharedPointer<CommHistory::ContactListener> m_contactListener;
     QList<PersonalNotification*> m_unresolvedEvents;
 
     QString notificationText(const CommHistory::Event &event);
 
-    QSharedPointer<CommHistory::ContactListener> m_contactListener;
     CommHistory::GroupModel *m_GroupModel;
 
     MWIListener *m_pMWIListener;
